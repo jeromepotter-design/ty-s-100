@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Glitch Sequencer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        :root {
+            --background-color: #0d2c54;
+            --text-color: #ffffff;
+            --accent-color: #f7b801;
+            --primary-blue: #2a6f97;
+            --step-off-color: #ffffff;
+            --step-on-color: var(--accent-color);
+            --playhead-color: #a9d6e5;
+            --knob-color: #012a4a;
+        }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--background-color);
+        }
+        body {
+            font-family: 'Poppins', 'Futura', sans-serif;
+            font-weight: 700;
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            gap: 20px;
+            user-select: none;
+        }
+        #video-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 720px;
+        }
+        #player-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background: #000;
+            border: 2px solid var(--primary-blue);
+        }
+        #player {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+        #video-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        #youtube-url {
+            flex-grow: 1;
+            padding: 10px;
+            font-family: inherit;
+            background: var(--primary-blue);
+            border: none;
+            color: var(--text-color);
+            font-size: 14px;
+        }
+        .control-btn {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: inherit;
+            border: none;
+            background-color: var(--playhead-color);
+            color: var(--knob-color);
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        #sequencer-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            max-width: 720px;
+        }
+        .track {
+            display: flex;
+            align-items: center;
+        }
+        .track-label {
+            width: 80px;
+            text-align: right;
+            padding-right: 15px;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            gap: 5px;
+            flex-grow: 1;
+        }
+        .step {
+            width: 100%;
+            padding-bottom: 100%;
+            position: relative;
+            background-color: var(--step-off-color);
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .step-content {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--background-color);
+        }
+        .step.active { background-color: var(--step-on-color); }
+        .step.playing::after {
+            content: '';
+            position: absolute;
+            top: -3px; left: -3px; right: -3px; bottom: -3px;
+            border: 2px solid var(--playhead-color);
+            z-index: 10;
+        }
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+        }
+        #tempo-knob-container { text-align: center; }
+        #knob {
+            width: 60px; height: 60px;
+            background: var(--knob-color);
+            border-radius: 50%;
+            position: relative;
+            cursor: ns-resize;
+            border: 2px solid var(--primary-blue);
+        }
+        #knob-indicator {
+            width: 4px; height: 15px;
+            background: var(--text-color);
+            position: absolute;
+            bottom: 50%;
+            left: calc(50% - 2px);
+            transform-origin: 50% 100%;
+        }
+        #tempo-value {
+            margin-top: 5px;
+            font-size: 1rem;
+            text-transform: uppercase;
+        }
+        .hint { font-size: 12px; opacity: 0.8; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="video-section">
+        <div id="player-container">
+            <div id="player"></div>
+        </div>
+        <div id="video-controls">
+            <input type="text" id="youtube-url" placeholder="Paste YouTube URL...">
+            <button id="load-video-btn" class="control-btn">Load</button>
+            <button id="random-video-btn" class="control-btn">Random</button>
+        </div>
+    </div>
+
+    <div id="sequencer-section">
+        <div class="track">
+            <div class="track-label">Jump</div>
+            <div class="steps" id="jump-track"></div>
+        </div>
+        <div class="track">
+            <div class="track-label">Kick</div>
+            <div class="steps" id="kick-track"></div>
+        </div>
+        <div class="track">
+            <div class="track-label">Snare</div>
+            <div class="steps" id="snare-track"></div>
+        </div>
+        <div class="track">
+            <div class="track-label">Clap</div>
+            <div class="steps" id="clap-track"></div>
+        </div>
+        <div class="track">
+            <div class="track-label">Hat C</div>
+            <div class="steps" id="hat_c-track"></div>
+        </div>
+        <div class="track">
+            <div class="track-label">Hat O</div>
+            <div class="steps" id="hat_o-track"></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="play-stop-btn" class="control-btn">Play</button>
+        <div id="tempo-knob-container">
+            <div id="knob"><div id="knob-indicator"></div></div>
+            <div id="tempo-value">120 BPM</div>
+        </div>
+    </div>
+    <div class="hint">Tip: on iPhone, tap once anywhere to unlock audio before pressing Play.</div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        // ------- Mobile audio unlock -------
+        let __audioUnlocked = false;
+        async function __tryUnlockAudio() {
+            try {
+                if (!__audioUnlocked) {
+                    await Tone.start();
+                    __audioUnlocked = true;
+                    window.removeEventListener('touchstart', __tryUnlockAudio);
+                    window.removeEventListener('mousedown', __tryUnlockAudio);
+                }
+            } catch (e) { console.warn(e); }
+        }
+        window.addEventListener('touchstart', __tryUnlockAudio, { passive: true });
+        window.addEventListener('mousedown', __tryUnlockAudio);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            let ytPlayer;
+
+            const randomVideoIds = [
+                'z_61P2x_3pM','y_6aSG2MO_s','m_S-e0gG5B4','2LKaX_2i-L0',
+                'hic-csewcso','F_y24-f7U_U','ddA42A7o2T8','1_pA9M5-48E',
+                'e1eT2iU_1Yg','b-h7TdsE5Wk','j-f2G_d0s0E','9S1i34rU_70'
+            ];
+
+            const instruments = ['Kick','Snare','Clap','Hat_C','Hat_O'];
+            let drumSequence, jumpSequence;
+            let isPlaying = false;
+
+            // YouTube
+            window.onYouTubeIframeAPIReady = function() {
+                ytPlayer = new YT.Player('player', {
+                    height: '100%',
+                    width: '100%',
+                    videoId: randomVideoIds[Math.floor(Math.random() * randomVideoIds.length)],
+                    playerVars: { playsinline: 1, controls: 0, modestbranding: 1, disablekb: 1, fs: 0 }
+                });
+            };
+
+            // Tone.js synths
+            const synths = {
+                Kick: new Tone.MembraneSynth().toDestination(),
+                Snare: new Tone.NoiseSynth({
+                    noise: { type: 'white' },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0 }
+                }).toDestination(),
+                Clap: new Tone.NoiseSynth({
+                    noise: { type: 'white' },
+                    envelope: { attack: 0.001, decay: 0.1, sustain: 0.1, release: 0.1 }
+                }).toDestination(),
+                Hat_C: new Tone.MetalSynth({
+                    frequency: 250,
+                    envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+                    harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5
+                }).toDestination(),
+                Hat_O: new Tone.MetalSynth({
+                    frequency: 250,
+                    envelope: { attack: 0.001, decay: 0.3, release: 0.01 },
+                    harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5
+                }).toDestination()
+            };
+            synths.Clap.volume.value = -10;
+
+            // Grid
+            function createGrid() {
+                drumSequence = Array(instruments.length).fill(null).map(() => Array(16).fill(false));
+                jumpSequence = Array(16).fill(null);
+                ['jump', ...instruments].forEach((id, trackIndex) => {
+                    const trackDiv = document.getElementById(`${id.toLowerCase()}-track`);
+                    trackDiv.innerHTML = '';
+                    for (let i = 0; i < 16; i++) {
+                        const step = document.createElement('div');
+                        step.classList.add('step');
+                        const content = document.createElement('div');
+                        content.classList.add('step-content');
+                        step.appendChild(content);
+                        step.dataset.step = i;
+                        if (id === 'jump') {
+                            step.addEventListener('click', cycleJumpStep);
+                        } else {
+                            step.dataset.track = trackIndex - 1;
+                            step.addEventListener('click', toggleDrumStep);
+                        }
+                        trackDiv.appendChild(step);
+                    }
+                });
+            }
+
+            function toggleDrumStep(e) {
+                const { track, step } = e.currentTarget.dataset;
+                drumSequence[track][step] = !drumSequence[track][step];
+                e.currentTarget.classList.toggle('active', drumSequence[track][step]);
+            }
+
+            function cycleJumpStep(e) {
+                const stepIndex = e.currentTarget.dataset.step;
+                let currentValue = jumpSequence[stepIndex];
+                currentValue = (currentValue === null) ? 0 : (currentValue < 9 ? currentValue + 1 : null);
+                jumpSequence[stepIndex] = currentValue;
+                e.currentTarget.querySelector('.step-content').textContent =
+                    currentValue === null ? '' : currentValue;
+                e.currentTarget.classList.toggle('active', currentValue !== null);
+            }
+
+            // Sequence
+            const sequence = new Tone.Sequence((time, col) => {
+                instruments.forEach((instrument, i) => {
+                    if (drumSequence[i][col]) {
+                        switch (instrument) {
+                            case 'Kick':  synths.Kick.triggerAttackRelease('C1','8n', time); break;
+                            case 'Snare': synths.Snare.triggerAttackRelease('16n', time); break;
+                            case 'Clap':  synths.Clap.triggerAttackRelease('16n', time); break;
+                            case 'Hat_C': synths.Hat_C.triggerAttackRelease('16n', time, 0.6); break;
+                            case 'Hat_O': synths.Hat_O.triggerAttackRelease('8n',  time, 0.6); break;
+                        }
+                    }
+                });
+
+                const jumpValue = jumpSequence[col];
+                if (jumpValue !== null && ytPlayer && typeof ytPlayer.getDuration === 'function') {
+                    const duration = ytPlayer.getDuration();
+                    if (duration > 0) ytPlayer.seekTo(duration * (jumpValue / 10), true);
+                }
+
+                Tone.Draw.schedule(() => {
+                    document.querySelectorAll('.step').forEach(s => s.classList.remove('playing'));
+                    document.querySelectorAll(`[data-step="${col}"]`).forEach(el => el.classList.add('playing'));
+                }, time);
+            }, Array.from(Array(16).keys()), '16n');
+
+            function play() {
+                Tone.start().then(() => {
+                    isPlaying = true;
+                    Tone.Transport.start();
+                    sequence.start(0);
+                    if (ytPlayer && typeof ytPlayer.playVideo === 'function') ytPlayer.playVideo();
+                    document.getElementById('play-stop-btn').textContent = 'Stop';
+                });
+            }
+
+            function stop() {
+                isPlaying = false;
+                Tone.Transport.stop();
+                sequence.stop();
+                if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+                document.querySelectorAll('.step.playing').forEach(el => el.classList.remove('playing'));
+                document.getElementById('play-stop-btn').textContent = 'Play';
+            }
+
+            function setupEventListeners() {
+                document.getElementById('play-stop-btn').addEventListener('click', () => isPlaying ? stop() : play());
+
+                document.getElementById('load-video-btn').addEventListener('click', () => {
+                    const url = document.getElementById('youtube-url').value.trim();
+                    const match = url.match(/^.*(?:youtu.be\\/|v\\/|u\\/\\w\\/|embed\\/|watch\\?v=|\\&v=)([^#\\&\\?]*).*/);
+                    const videoId = match ? match[1] : null;
+                    if (videoId && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+                        ytPlayer.loadVideoById(videoId);
+                        if (isPlaying) ytPlayer.playVideo();
+                    }
+                });
+
+                document.getElementById('random-video-btn').addEventListener('click', () => {
+                    const randomId = randomVideoIds[Math.floor(Math.random() * randomVideoIds.length)];
+                    if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+                        ytPlayer.loadVideoById(randomId);
+                        if (isPlaying) ytPlayer.playVideo();
+                    }
+                });
+
+                setupKnob();
+            }
+
+            function setupKnob() {
+                const knob = document.getElementById('knob');
+                const indicator = document.getElementById('knob-indicator');
+                const tempoValueDisplay = document.getElementById('tempo-value');
+                const minTempo = 60, maxTempo = 180;
+                let isDragging = false;
+                let startY = 0, startTempo = 120;
+
+                const updateTempo = (newTempo) => {
+                    const tempo = Math.max(minTempo, Math.min(maxTempo, newTempo));
+                    Tone.Transport.bpm.value = tempo;
+                    const tempoRange = maxTempo - minTempo;
+                    const angle = ((tempo - minTempo) / tempoRange) * 270 - 135;
+                    indicator.style.transform = `rotate(${angle}deg)`;
+                    tempoValueDisplay.textContent = `${Math.round(tempo)} BPM`;
+                };
+
+                knob.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    startY = e.clientY;
+                    startTempo = Tone.Transport.bpm.value;
+                    document.body.style.cursor = 'ns-resize';
+                });
+                document.addEventListener('mouseup', () => {
+                    isDragging = false;
+                    document.body.style.cursor = 'default';
+                });
+                document.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    const deltaY = startY - e.clientY;
+                    updateTempo(startTempo + deltaY * 0.5);
+                });
+
+                knob.addEventListener('touchstart', (e) => {
+                    isDragging = true;
+                    startY = e.touches[0].clientY;
+                    startTempo = Tone.Transport.bpm.value;
+                }, { passive: true });
+                document.addEventListener('touchend', () => { isDragging = false; }, { passive: true });
+                document.addEventListener('touchmove', (e) => {
+                    if (!isDragging) return;
+                    const deltaY = startY - e.touches[0].clientY;
+                    updateTempo(startTempo + deltaY * 0.5);
+                }, { passive: true });
+
+                updateTempo(120);
+            }
+
+            // Initialize
+            createGrid();
+            setupEventListeners();
+        });
+    </script>
+</body>
+</html>
