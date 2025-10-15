@@ -1,12 +1,201 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Glitch Sequencer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
-<!-- (rest of file trimmed for brevity in zip creation step) -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Glitch Sequencer – Netlify Safe</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js" defer></script>
+  <style>
+    :root{--bg:#0d2c54;--fg:#fff;--accent:#f7b801;--blue:#2a6f97;--ph:#a9d6e5;--knob:#012a4a}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:Poppins,system-ui,sans-serif}
+    .wrap{max-width:760px;margin:16px auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+    .top-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:relative;z-index:2}
+    input[type="text"]{flex:1;min-width:220px;padding:10px;background:var(--blue);color:#fff;border:0}
+    button{padding:10px 18px;border:0;background:var(--ph);color:var(--knob);font-weight:700;cursor:pointer}
+    .grid .row{display:flex;align-items:center;gap:10px}
+    .label{width:80px;text-align:right;opacity:.9}
+    .steps{display:grid;grid-template-columns:repeat(16,1fr);gap:6px;flex:1}
+    .step{aspect-ratio:1/1;background:#fff;cursor:pointer;position:relative}
+    .step.active{background:var(--accent)}
+    .step.playing::after{content:"";position:absolute;inset:-3px;border:2px solid var(--ph)}
+    .bottom{display:flex;gap:20px;align-items:center;position:relative;z-index:2}
+    #tempo{font-weight:700}
+    .hint{font-size:12px;opacity:.8}
+    #err{display:none;background:#ff4d4f;color:white;padding:10px;border-left:4px solid #8b0000;white-space:pre-wrap}
+    #player{width:100%; aspect-ratio:16/9; background:#000; border:2px solid var(--blue)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="err"></div>
+
+    <div class="top-controls">
+      <input id="youtube-url" placeholder="Paste YouTube URL…" />
+      <button id="load">Load</button>
+      <button id="random">Random</button>
+      <button id="play-stop-btn">Play</button>
+      <span id="tempo">120 BPM</span>
+    </div>
+
+    <div id="player"></div>
+
+    <div class="grid">
+      <div class="row"><div class="label">Jump</div><div class="steps" id="jump-track"></div></div>
+      <div class="row"><div class="label">Kick</div><div class="steps" id="kick-track"></div></div>
+      <div class="row"><div class="label">Snare</div><div class="steps" id="snare-track"></div></div>
+      <div class="row"><div class="label">Clap</div><div class="steps" id="clap-track"></div></div>
+      <div class="row"><div class="label">Hat C</div><div class="steps" id="hat_c-track"></div></div>
+      <div class="row"><div class="label">Hat O</div><div class="steps" id="hat_o-track"></div></div>
+    </div>
+
+    <div class="hint">Tip: tap once anywhere to unlock audio on iPhone, then press Play.</div>
+  </div>
+
+  <!-- Load YT API last and defensively -->
+  <script defer src="https://www.youtube.com/iframe_api"></script>
+
+  <script>
+  // Error banner for quick diagnosis on phone
+  window.addEventListener('error', e => {
+    const el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent = 'Error: ' + (e.message || e);
+  });
+
+  // Mobile audio unlock
+  let __audioUnlocked = false;
+  function __unlock() {
+    if (__audioUnlocked) return;
+    if (window.Tone && Tone.start) {
+      Tone.start().then(() => { __audioUnlocked = true; }).catch(()=>{});
+    }
+  }
+  window.addEventListener('touchstart', __unlock, { passive: true });
+  window.addEventListener('mousedown', __unlock);
+
+  // App
+  (function initWhenReady(){
+    // Wait for Tone to load since we deferred it
+    if (!window.Tone) { requestAnimationFrame(initWhenReady); return; }
+
+    const instruments = ['Kick','Snare','Clap','Hat_C','Hat_O'];
+    let drumSequence = Array(instruments.length).fill(0).map(()=>Array(16).fill(false));
+    let jumpSequence = Array(16).fill(null);
+    let isPlaying = false;
+    let ytPlayer = null;
+
+    // Build grid
+    function buildGrid(){
+      ['jump', ...instruments].forEach((id, trackIndex) => {
+        const trackDiv = document.getElementById(id.toLowerCase() + '-track');
+        if (!trackDiv) return;
+        trackDiv.innerHTML = '';
+        for (let i=0;i<16;i++){
+          const step = document.createElement('div');
+          step.className = 'step';
+          step.dataset.step = i;
+          if (id === 'jump'){
+            step.addEventListener('click', (e)=>{
+              const k = +e.currentTarget.dataset.step;
+              let v = jumpSequence[k];
+              v = (v === null) ? 0 : (v < 9 ? v + 1 : null);
+              jumpSequence[k] = v;
+              e.currentTarget.classList.toggle('active', v !== null);
+              e.currentTarget.textContent = (v === null) ? '' : v;
+            });
+          } else {
+            step.dataset.track = trackIndex - 1;
+            step.addEventListener('click', (e)=>{
+              const t = +e.currentTarget.dataset.track;
+              const s = +e.currentTarget.dataset.step;
+              drumSequence[t][s] = !drumSequence[t][s];
+              e.currentTarget.classList.toggle('active', drumSequence[t][s]);
+            });
+          }
+          trackDiv.appendChild(step);
+        }
+      });
+    }
+
+    // Synths
+    const synths = {
+      Kick: new Tone.MembraneSynth().toDestination(),
+      Snare: new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.005, decay:0.1, sustain:0}}).toDestination(),
+      Clap: new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.001, decay:0.1, sustain:0.1, release:0.1}}).toDestination(),
+      Hat_C: new Tone.MetalSynth({frequency:250, envelope:{attack:0.001, decay:0.05, release:0.01}, harmonicity:5.1, modulationIndex:32, resonance:4000, octaves:1.5}).toDestination(),
+      Hat_O: new Tone.MetalSynth({frequency:250, envelope:{attack:0.001, decay:0.3, release:0.01}, harmonicity:5.1, modulationIndex:32, resonance:4000, octaves:1.5}).toDestination()
+    };
+    synths.Clap.volume.value = -10;
+
+    // Sequence
+    const sequence = new Tone.Sequence((time, col) => {
+      instruments.forEach((name, i) => {
+        if (drumSequence[i][col]) {
+          switch(name){
+            case 'Kick': synths.Kick.triggerAttackRelease('C1','8n',time); break;
+            case 'Snare': synths.Snare.triggerAttackRelease('16n',time); break;
+            case 'Clap': synths.Clap.triggerAttackRelease('16n',time); break;
+            case 'Hat_C': synths.Hat_C.triggerAttackRelease('16n',time,0.6); break;
+            case 'Hat_O': synths.Hat_O.triggerAttackRelease('8n',time,0.6); break;
+          }
+        }
+      });
+      Tone.Draw.schedule(()=>{
+        document.querySelectorAll('.step').forEach(s=>s.classList.remove('playing'));
+        document.querySelectorAll(`[data-step="${col}"]`).forEach(el=>el.classList.add('playing'));
+      }, time);
+    }, [...Array(16).keys()], '16n');
+
+    // Controls
+    const playBtn = document.getElementById('play-stop-btn');
+    function play(){
+      Tone.start().then(()=>{
+        isPlaying = true;
+        Tone.Transport.start();
+        sequence.start(0);
+        if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+        playBtn.textContent = 'Stop';
+      }).catch(()=>{});
+    }
+    function stop(){
+      isPlaying = false;
+      Tone.Transport.stop();
+      sequence.stop();
+      if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+      document.querySelectorAll('.step').forEach(s=>s.classList.remove('playing'));
+      playBtn.textContent = 'Play';
+    }
+    playBtn?.addEventListener('click', ()=> isPlaying ? stop() : play());
+
+    // Tempo display (static 120 here, but hook up if you add a knob)
+    document.getElementById('tempo').textContent = '120 BPM';
+    Tone.Transport.bpm.value = 120;
+
+    // YT helpers (defensive if API never loads)
+    window.onYouTubeIframeAPIReady = function(){
+      try {
+        ytPlayer = new YT.Player('player', {
+          height: '100%',
+          width: '100%',
+          playerVars: { playsinline: 1, controls: 0, modestbranding: 1, disablekb: 1, fs: 0 }
+        });
+      } catch(e){ /* ignore */ }
+    };
+    document.getElementById('load')?.addEventListener('click', ()=>{
+      const url = document.getElementById('youtube-url')?.value.trim();
+      const m = url && url.match(/^.*(?:youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]{11}).*/);
+      const id = m && m[1];
+      if (id && ytPlayer && ytPlayer.loadVideoById) ytPlayer.loadVideoById(id);
+    });
+    const randomIds = ['z_61P2x_3pM','y_6aSG2MO_s','m_S-e0gG5B4','2LKaX_2i-L0','hic-csewcso','F_y24-f7U_U'];
+    document.getElementById('random')?.addEventListener('click', ()=>{
+      const id = randomIds[Math.floor(Math.random()*randomIds.length)];
+      if (ytPlayer && ytPlayer.loadVideoById) ytPlayer.loadVideoById(id);
+    });
+
+    buildGrid();
+  })();
+  </script>
+</body>
 </html>
